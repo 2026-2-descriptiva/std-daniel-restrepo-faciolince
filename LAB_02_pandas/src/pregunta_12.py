@@ -15,4 +15,15 @@ def pregunta_12():
         ...
     """
 
-    raise NotImplementedError
+    from pathlib import Path
+
+    import pandas as pd
+
+    path = Path(__file__).parents[1] / "data" / "tbl2.tsv"
+    table = pd.read_csv(path, sep="\t")
+    table["c5"] = table["c5a"] + ":" + table["c5b"].astype(str)
+    return (
+        table.groupby("c0", sort=True)["c5"]
+        .agg(lambda values: ",".join(sorted(values)))
+        .reset_index()
+    )

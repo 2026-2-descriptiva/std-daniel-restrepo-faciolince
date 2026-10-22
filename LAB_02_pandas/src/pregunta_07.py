@@ -13,4 +13,9 @@ def pregunta_07():
         ...
     """
 
-    raise NotImplementedError
+    from pathlib import Path
+
+    import pandas as pd
+
+    path = Path(__file__).parents[1] / "data" / "tbl0.tsv"
+    return pd.read_csv(path, sep="\t").groupby("c1")["c2"].sum()

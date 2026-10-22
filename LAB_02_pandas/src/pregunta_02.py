@@ -8,4 +8,9 @@ def pregunta_02():
         4
     """
 
-    raise NotImplementedError
+    from pathlib import Path
+
+    import pandas as pd
+
+    path = Path(__file__).parents[1] / "data" / "tbl0.tsv"
+    return len(pd.read_csv(path, sep="\t").columns)
