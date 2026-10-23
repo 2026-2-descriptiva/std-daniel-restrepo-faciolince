@@ -26,4 +26,41 @@ def pregunta_01():
         ...
     """
 
-    raise NotImplementedError
+    import re
+    from pathlib import Path
+
+    import pandas as pd
+
+    path = Path(__file__).parents[1] / "data" / "clusters_report.txt"
+    records = []
+    current = None
+
+    for line in path.read_text(encoding="utf-8").splitlines():
+        match = re.match(
+            r"^\s*(\d+)\s+(\d+)\s+([\d,]+)\s*%\s+(.*)$",
+            line,
+        )
+        if match:
+            if current is not None:
+                records.append(current)
+            current = {
+                "cluster": int(match.group(1)),
+                "cantidad_de_palabras_clave": int(match.group(2)),
+                "porcentaje_de_palabras_clave": float(
+                    match.group(3).replace(",", ".")
+                ),
+                "principales_palabras_clave": [match.group(4)],
+            }
+        elif current is not None and line.strip():
+            current["principales_palabras_clave"].append(line)
+
+    if current is not None:
+        records.append(current)
+
+    for record in records:
+        keywords = " ".join(record["principales_palabras_clave"])
+        keywords = re.sub(r"\s+", " ", keywords)
+        keywords = re.sub(r"\s*,\s*", ", ", keywords)
+        record["principales_palabras_clave"] = keywords.rstrip(" .")
+
+    return pd.DataFrame(records)
