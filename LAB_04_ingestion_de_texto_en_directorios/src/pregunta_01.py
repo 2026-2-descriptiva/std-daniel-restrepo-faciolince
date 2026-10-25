@@ -26,4 +26,26 @@ def pregunta_01():
         ...
     """
 
-    raise NotImplementedError
+    from pathlib import Path
+
+    import pandas as pd
+
+    activity_dir = Path(__file__).parents[1]
+    data_dir = activity_dir / "data"
+    submission_dir = activity_dir / "submission"
+
+    for split in ("train", "test"):
+        records = []
+        split_dir = data_dir / split
+
+        for category_dir in sorted(path for path in split_dir.iterdir() if path.is_dir()):
+            for text_path in sorted(category_dir.glob("*.txt")):
+                records.append(
+                    {
+                        "phrase": text_path.read_text(encoding="utf-8").strip(),
+                        "target": category_dir.name,
+                    }
+                )
+
+        dataset = pd.DataFrame(records, columns=["phrase", "target"])
+        dataset.to_csv(submission_dir / f"{split}_dataset.csv", index=False)
