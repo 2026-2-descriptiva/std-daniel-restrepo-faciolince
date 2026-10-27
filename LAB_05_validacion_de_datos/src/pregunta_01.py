@@ -1,3 +1,34 @@
+import json
+from pathlib import Path
+
+import pandas as pd
+
+
+REQUIRED_COLUMNS = [
+    "supplier_id",
+    "supplier",
+    "country",
+    "city",
+    "purchase_date",
+    "amount",
+    "discount",
+    "weight",
+    "units",
+    "unit_price",
+    "contact_email",
+]
+
+
+def _normalize_column_name(column: str) -> str:
+    """Normaliza un encabezado sin alterar los valores de las celdas."""
+    return column.lstrip("\ufeff").strip().lower().replace(" ", "_")
+
+
+def _missing_values(series: pd.Series) -> pd.Series:
+    values = series.astype("string")
+    return values.str.strip().eq("") | values.str.strip().str.upper().eq("N/A")
+
+
 def main():
     """
     Antes de limpiar o analizar un conjunto de datos, un analista debe
@@ -48,4 +79,85 @@ def main():
         }
     """
 
-    raise NotImplementedError
+    activity_dir = Path(__file__).resolve().parents[1]
+    data_path = activity_dir / "data" / "ventas.csv.gz"
+    report_path = activity_dir / "submission" / "data_quality_report.json"
+
+    data = pd.read_csv(
+        data_path,
+        compression="gzip",
+        dtype="string",
+        keep_default_na=False,
+        na_filter=False,
+    )
+    data.columns = [_normalize_column_name(column) for column in data.columns]
+
+    missing_required_columns = sorted(
+        set(REQUIRED_COLUMNS) - set(data.columns)
+    )
+    unexpected_columns = sorted(
+        set(data.columns) - set(REQUIRED_COLUMNS)
+    )
+
+    missing_value_count_by_column = {
+        column: int(_missing_values(data[column]).sum())
+        for column in data.columns
+    }
+
+    if "supplier_id" in data.columns:
+        supplier_id_counts = data["supplier_id"].value_counts(dropna=False)
+        duplicate_supplier_id_row_count = int(
+            data["supplier_id"].isin(
+                supplier_id_counts[supplier_id_counts > 1].index
+            ).sum()
+        )
+    else:
+        duplicate_supplier_id_row_count = 0
+
+    if "contact_email" in data.columns:
+        email_pattern = r"[^@\s]+@[^@\s]+\.[^@\s]+"
+        invalid_email_count = int(
+            (~data["contact_email"].str.fullmatch(email_pattern, na=False)).sum()
+        )
+    else:
+        invalid_email_count = 0
+
+    if "units" in data.columns:
+        units = pd.to_numeric(data["units"], errors="coerce")
+        units_missing = _missing_values(data["units"])
+        invalid_units = (
+            ~units_missing
+            & (units.isna() | (units <= 0) | (units % 1 != 0))
+        )
+        invalid_unit_count = int(invalid_units.sum())
+    else:
+        invalid_unit_count = 0
+
+    if "country" in data.columns:
+        country_values = sorted(
+            data.loc[~_missing_values(data["country"]), "country"]
+            .drop_duplicates()
+            .tolist()
+        )
+    else:
+        country_values = []
+
+    report = {
+        "row_count": int(len(data)),
+        "column_count": int(len(data.columns)),
+        "missing_required_columns": missing_required_columns,
+        "unexpected_columns": unexpected_columns,
+        "duplicate_row_count": int(data.duplicated().sum()),
+        "duplicate_supplier_id_row_count": duplicate_supplier_id_row_count,
+        "missing_value_count_by_column": missing_value_count_by_column,
+        "invalid_email_count": invalid_email_count,
+        "invalid_unit_count": invalid_unit_count,
+        "country_values": country_values,
+    }
+
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return report
