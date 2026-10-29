@@ -1,4 +1,5 @@
 import pandas as pd
+from pathlib import Path
 
 
 def clean_campaign_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -43,4 +44,86 @@ def clean_campaign_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         ...
     """
 
-    raise NotImplementedError
+    activity_dir = Path(__file__).resolve().parents[1]
+    data_dir = activity_dir / "data"
+    submission_dir = activity_dir / "submission"
+
+    files = sorted(data_dir.glob("bank-marketing-campaing-*.csv.gz"))
+    data = pd.concat(
+        [
+            pd.read_csv(file, compression="gzip")
+            for file in files
+        ],
+        ignore_index=True,
+    )
+
+    client = data[
+        [
+            "client_id",
+            "age",
+            "job",
+            "marital",
+            "education",
+            "credit_default",
+            "mortgage",
+        ]
+    ].copy()
+    client["job"] = (
+        client["job"].str.replace(".", "", regex=False).str.replace("-", "_", regex=False)
+    )
+    client["education"] = (
+        client["education"]
+        .str.replace(".", "_", regex=False)
+        .replace("unknown", pd.NA)
+    )
+    for column in ["credit_default", "mortgage"]:
+        client[column] = client[column].eq("yes").astype(int)
+
+    campaign = data[
+        [
+            "client_id",
+            "number_contacts",
+            "contact_duration",
+            "previous_campaign_contacts",
+            "previous_outcome",
+            "campaign_outcome",
+            "month",
+            "day",
+        ]
+    ].copy()
+    campaign["previous_outcome"] = campaign["previous_outcome"].eq("success").astype(
+        int
+    )
+    campaign["campaign_outcome"] = campaign["campaign_outcome"].eq("yes").astype(int)
+    month_numbers = {
+        "jan": 1,
+        "feb": 2,
+        "mar": 3,
+        "apr": 4,
+        "may": 5,
+        "jun": 6,
+        "jul": 7,
+        "aug": 8,
+        "sep": 9,
+        "oct": 10,
+        "nov": 11,
+        "dec": 12,
+    }
+    campaign["last_contact_date"] = pd.to_datetime(
+        {
+            "year": 2022,
+            "month": campaign.pop("month").map(month_numbers),
+            "day": campaign.pop("day"),
+        }
+    ).dt.strftime("%Y-%m-%d")
+
+    economics = data[
+        ["client_id", "cons_price_idx", "euribor_three_months"]
+    ].copy()
+
+    submission_dir.mkdir(parents=True, exist_ok=True)
+    client.to_csv(submission_dir / "client.csv", index=False)
+    campaign.to_csv(submission_dir / "campaign.csv", index=False)
+    economics.to_csv(submission_dir / "economics.csv", index=False)
+
+    return client, campaign, economics
