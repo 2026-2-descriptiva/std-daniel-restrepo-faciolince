@@ -1,4 +1,6 @@
 import pandas as pd
+import matplotlib.pyplot as plt
+from pathlib import Path
 
 
 def build_cohort_analysis() -> pd.DataFrame:
@@ -44,4 +46,87 @@ def build_cohort_analysis() -> pd.DataFrame:
         ...
     """
 
-    raise NotImplementedError
+    activity_dir = Path(__file__).resolve().parents[1]
+    data_path = activity_dir / "data" / "sales.csv.gz"
+    submission_dir = activity_dir / "submission"
+    submission_dir.mkdir(exist_ok=True)
+
+    sales = pd.read_csv(data_path, compression="gzip")
+    sales["order_month"] = pd.to_datetime(sales["OrderDate"]).dt.to_period("M")
+    first_purchase = sales.groupby("CustomerID")["order_month"].transform("min")
+    sales["cohort_month"] = first_purchase
+    sales["period_index"] = (
+        sales["order_month"].dt.year * 12
+        + sales["order_month"].dt.month
+        - first_purchase.dt.year * 12
+        - first_purchase.dt.month
+    )
+
+    retention = (
+        sales.groupby(["cohort_month", "period_index"], as_index=False)["CustomerID"]
+        .nunique()
+        .rename(columns={"CustomerID": "active_customers"})
+    )
+    cohort_sizes = (
+        retention[retention["period_index"] == 0][
+            ["cohort_month", "active_customers"]
+        ]
+        .rename(columns={"active_customers": "cohort_size"})
+    )
+    retention = retention.merge(cohort_sizes, on="cohort_month", how="left")
+    retention["retention_rate"] = (
+        retention["active_customers"] / retention["cohort_size"]
+    )
+    retention = retention.sort_values(
+        ["cohort_month", "period_index"]
+    ).reset_index(drop=True)
+    retention["cohort_month"] = retention["cohort_month"].astype(str)
+    retention = retention[
+        [
+            "cohort_month",
+            "period_index",
+            "active_customers",
+            "cohort_size",
+            "retention_rate",
+        ]
+    ]
+
+    retention.to_csv(
+        submission_dir / "cohort_retention.csv",
+        index=False,
+    )
+
+    heatmap = retention.pivot(
+        index="cohort_month",
+        columns="period_index",
+        values="retention_rate",
+    )
+    fig, ax = plt.subplots(figsize=(10, 6))
+    image = ax.imshow(
+        heatmap.to_numpy(dtype=float),
+        aspect="auto",
+        cmap="Blues",
+        vmin=0,
+        vmax=1,
+    )
+    ax.set_xlabel("Período desde la primera compra")
+    ax.set_ylabel("Cohorte")
+    ax.set_xticks(range(len(heatmap.columns)), heatmap.columns)
+    ax.set_yticks(range(len(heatmap.index)), heatmap.index)
+    for row in range(len(heatmap.index)):
+        for column in range(len(heatmap.columns)):
+            value = heatmap.iat[row, column]
+            if pd.notna(value):
+                ax.text(
+                    column,
+                    row,
+                    f"{value:.0%}",
+                    ha="center",
+                    va="center",
+                )
+    fig.colorbar(image, ax=ax, format=lambda value, _: f"{value:.0%}")
+    fig.tight_layout()
+    fig.savefig(submission_dir / "cohort_retention_heatmap.png", dpi=150)
+    plt.close(fig)
+
+    return retention
